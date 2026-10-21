@@ -46,13 +46,18 @@ create table if not exists public.projects (
   featured_amount numeric default 100,
   featured_expires_at timestamptz,
   promo_code text,
+  gifted_by bigint,
   rejection_reason text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   constraint projects_user_id_fkey
     foreign key (user_id)
     references public.users ("numericId")
-    on delete restrict
+    on delete restrict,
+  constraint projects_gifted_by_fkey
+    foreign key (gifted_by)
+    references public.users ("numericId")
+    on delete set null
 );
 
 create unique index if not exists projects_slug_key on public.projects (slug);
@@ -60,6 +65,7 @@ create index if not exists projects_status_idx on public.projects (status);
 create index if not exists projects_category_idx on public.projects (category);
 create index if not exists projects_created_at_idx on public.projects (created_at desc);
 create index if not exists projects_user_id_idx on public.projects (user_id);
+create index if not exists projects_gifted_by_idx on public.projects (gifted_by);
 
 -- Maintainer category assignments
 -- Associates maintainers with the categories they can moderate
@@ -148,6 +154,32 @@ create table if not exists public.promo_codes (
 );
 
 create unique index if not exists promo_codes_code_key on public.promo_codes (upper(code));
+
+-- Payments record redeemed on-chain payments (e.g. spotlights).
+-- The unique tx_hash index ensures a payment can only be redeemed once.
+create table if not exists public.payments (
+  id bigserial primary key,
+  tx_hash text not null,
+  product text not null,
+  user_id bigint not null,
+  project_id bigint,
+  amount numeric not null,
+  gifted integer not null default 0,
+  created_at timestamptz not null default now(),
+  constraint payments_user_id_fkey
+    foreign key (user_id)
+    references public.users ("numericId")
+    on delete restrict,
+  constraint payments_project_id_fkey
+    foreign key (project_id)
+    references public.projects ("numericId")
+    on delete set null
+);
+
+create unique index if not exists payments_tx_hash_key on public.payments (tx_hash);
+create index if not exists payments_user_id_idx on public.payments (user_id);
+create index if not exists payments_project_id_idx on public.payments (project_id);
+create index if not exists payments_product_idx on public.payments (product);
 
 -- Seed counters used by nextId()
 insert into public.counters (name, value)

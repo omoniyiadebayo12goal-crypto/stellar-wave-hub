@@ -16,6 +16,7 @@ import {
 	isRegisteredOnChain,
 	type OnChainRating,
 } from "@/lib/ratingContract";
+import {payWithFreighter} from "@/lib/payments-client";
 
 interface Project {
 	id: number;
@@ -35,6 +36,7 @@ interface Project {
 	user_id: number;
 	username?: string;
 	logo_url?: string;
+	spotlight_gifter_username?: string | null;
 	created_at: string;
 }
 
@@ -145,6 +147,11 @@ export default function ProjectDetailPage({
 	const [reportBusy, setReportBusy] = useState(false);
 	const [reportMsg, setReportMsg] = useState("");
 	const [reportedIds, setReportedIds] = useState<number[]>([]);
+
+	// Gift spotlight state
+	const [gifting, setGifting] = useState(false);
+	const [giftMsg, setGiftMsg] = useState("");
+	const [giftTxHash, setGiftTxHash] = useState<string | null>(null);
 
 	useEffect(() => {
 		fetch(`/api/projects/${slug}`)
@@ -292,6 +299,45 @@ export default function ProjectDetailPage({
 		setSubmitting(false);
 	};
 
+	const giftSpotlight = async () => {
+		if (!project || !token) return;
+		setGifting(true);
+		setGiftMsg("");
+		setGiftTxHash(null);
+		try {
+			const txHash = await payWithFreighter("spotlight");
+			if (!txHash) throw new Error("Payment was not completed");
+			setGiftTxHash(txHash);
+			const res = await fetch("/api/featured/activate", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: `Bearer ${token}`,
+				},
+				body: JSON.stringify({
+					project_id: project.id,
+					tx_hash: txHash,
+					gift: true,
+				}),
+			});
+			const data = await res.json();
+			if (!res.ok) throw new Error(data.error || "Failed to activate spotlight");
+			setGiftMsg("Spotlight gifted!");
+			setProject((p) =>
+				p
+					? {
+							...p,
+							featured: 1,
+							spotlight_gifter_username: user?.username ?? p.spotlight_gifter_username,
+						}
+					: p,
+			);
+		} catch (err) {
+			setGiftMsg(err instanceof Error ? err.message : "Failed to gift spotlight");
+		}
+		setGifting(false);
+	};
+
 	if (loading) {
 		return (
 			<div className="max-w-5xl mx-auto px-4 py-12">
@@ -348,6 +394,11 @@ export default function ProjectDetailPage({
 							{project.featured === 1 && (
 								<span className="featured-badge tag tag-solar">
 									Featured
+								</span>
+							)}
+							{project.featured === 1 && project.spotlight_gifter_username && (
+								<span className="tag tag-plasma text-xs">
+									Spotlight gifted by @{project.spotlight_gifter_username}
 								</span>
 							)}
 						</div>
@@ -457,6 +508,38 @@ export default function ProjectDetailPage({
 						<StellarAddressLink address={project.stellar_contract_id} type="contract" network={project.stellar_network} />
 					)}
 				</div>
+
+				{/* Gift a spotlight */}
+				{user && project.featured !== 1 && (
+					<div className="mt-5 flex items-center gap-3 flex-wrap">
+						<button
+							type="button"
+							onClick={giftSpotlight}
+							disabled={gifting}
+							className="btn-nova text-sm !py-1.5 disabled:opacity-50"
+						>
+							{gifting ? "Processing..." : "Gift a spotlight"}
+						</button>
+						{giftMsg && (
+							<span className="text-sm text-ash">
+								{giftMsg}
+								{giftTxHash && (
+									<>
+										{" "}
+										<a
+											href={explorerTxUrl(giftTxHash)}
+											target="_blank"
+											rel="noopener noreferrer"
+											className="underline font-mono text-xs"
+										>
+											View tx
+										</a>
+									</>
+								)}
+							</span>
+						)}
+					</div>
+				)}
 			</div>
 
 			{/* Website Preview */}
